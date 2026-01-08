@@ -36,8 +36,10 @@ from pathlib import Path
 import logging
 import pandas as pd
 
-
-def validate_source_file_exists(path: Path, logger: logging.Logger) -> None:
+# ==================================================================================================
+# Extract Tasks
+# ==================================================================================================
+def _validate_source_file_exists(path: Path, logger: logging.Logger) -> None:
     """
     Validate source file existence and readability.
 
@@ -59,7 +61,7 @@ def validate_source_file_exists(path: Path, logger: logging.Logger) -> None:
         f.read(1)
 
 
-def validate_source_file_schema(
+def _validate_source_file_schema(
     data: pd.DataFrame,
     expected_columns: List[str],
     logger: logging.Logger
@@ -89,7 +91,7 @@ def validate_source_file_schema(
         )
 
 
-def perform_data_sanity_checks(data: pd.DataFrame, logger: logging.Logger) -> None:
+def _perform_data_sanity_checks(data: pd.DataFrame, logger: logging.Logger) -> None:
     """
     Perform basic data sanity checks.
 
@@ -130,11 +132,13 @@ def perform_data_sanity_checks(data: pd.DataFrame, logger: logging.Logger) -> No
         )
 
 
+# ==================================================================================================
+# Execute Extract
+# ==================================================================================================
 def run_extract(
     source_name: str,
     file_path: Path,
     expected_columns: List[str],
-    connection: Any,
     logger: logging.Logger
 ) -> pd.DataFrame:
     """
@@ -143,7 +147,6 @@ def run_extract(
     :param source_name: Source entity name (e.g., sales, customers)
     :param file_path: Path to source file
     :param expected_columns: Authoritative column list
-    :param connection: Active DB connection (unused in Extract; reserved for orchestration)
     :param logger: Shared ETL logger instance
     :return: Raw but validated DataFrame
     :raises: Exception
@@ -151,12 +154,12 @@ def run_extract(
     try:
         logger.info("Starting EXTRACT for source=%s", source_name)
 
-        validate_source_file_exists(file_path, logger)
+        _validate_source_file_exists(file_path, logger)
 
         data = pd.read_csv(file_path)
 
-        validate_source_file_schema(data, expected_columns, logger)
-        perform_data_sanity_checks(data, logger)
+        _validate_source_file_schema(data, expected_columns, logger)
+        _perform_data_sanity_checks(data, logger)
 
         logger.info("EXTRACT completed successfully for source=%s", source_name)
         return data
