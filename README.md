@@ -188,7 +188,7 @@ retail-sales-etl/
 │   └── pipeline_runner.py
 │
 ├── sql/
-│   ├── metadata_ddl.sql
+│   ├── create_control_tables.sql
 │   └── warehouse_ddl.sql
 │
 ├── docs/

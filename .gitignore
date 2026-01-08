@@ -208,3 +208,10 @@ __marimo__/
 
 # Pycharm
 .idea/
+
+# Other
+.data/
+.db/
+.DS_Store/
+.DS_Store
+.logs/
