@@ -21,7 +21,11 @@ def _utc_time(*args):
 
 logging.Formatter.converter = _utc_time
 
-def get_logger(level = logging.INFO) -> logging.Logger:
+def get_logger(
+        run_id: str,
+        pipeline_name: str,
+        level: int = logging.INFO
+) -> logging.Logger:
     # -----------------------------------------------------------------------------
     # Get Logger
     # -----------------------------------------------------------------------------
@@ -35,30 +39,33 @@ def get_logger(level = logging.INFO) -> logging.Logger:
     # we need to safeguard that same logger is used
     # -----------------------------------------------------------------------------
 
-    if logger.handlers:
-        return logger
+    if not logger.handlers:
+        # -----------------------------------------------------------------------------
+        # Create handler
+        # -----------------------------------------------------------------------------
+        handler = RotatingFileHandler(
+            filename = LOG_FILE,
+            maxBytes = 5 * 1024 * 1024, # 5MB log
+            backupCount = 3 # 3 backups to be kept before rotating logs
+        )
 
-    # -----------------------------------------------------------------------------
-    # Create handler
-    # -----------------------------------------------------------------------------
-    handler = RotatingFileHandler(
-        filename = LOG_FILE,
-        maxBytes = 5 * 1024 * 1024, # 5MB log
-        backupCount = 3 # 3 backups to be kept before rotating logs
+        # -----------------------------------------------------------------------------
+        # Configure format for handler
+        # -----------------------------------------------------------------------------
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(module)s | %(pipeline_name)s | %(run_id)s | %(message)s"
+        )
+        handler.setFormatter(formatter)
+
+        # -----------------------------------------------------------------------------
+        # Add handler to logger
+        # -----------------------------------------------------------------------------
+        logger.addHandler(handler)
+        logger.propagate = False
+
+    return logging.LoggerAdapter(
+        logger, extra={
+            "run_id": run_id,
+            "pipeline_name": pipeline_name
+        }
     )
-
-    # -----------------------------------------------------------------------------
-    # Configure format for handler
-    # -----------------------------------------------------------------------------
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(module)s | %(message)s"
-    )
-    handler.setFormatter(formatter)
-
-    # -----------------------------------------------------------------------------
-    # Add handler to logger
-    # -----------------------------------------------------------------------------
-    logger.addHandler(handler)
-    logger.propagate = False
-
-    return logger

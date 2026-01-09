@@ -79,6 +79,7 @@ def insert_run(connection, run_data: Dict[str, Any]) -> None:
     )
 
     connection.execute(sql_query, query_params)
+    connection.commit()
 
 
 def update_run_status(connection, run_data: Dict[str, Any]) -> None:
@@ -107,6 +108,7 @@ def update_run_status(connection, run_data: Dict[str, Any]) -> None:
     )
 
     connection.execute(sql_query, query_params)
+    connection.commit()
 
 
 def get_run(connection, run_id: str) -> Dict[str, Any] | None:
@@ -159,6 +161,7 @@ def insert_stage(connection, stage_data: Dict[str, Any]) -> None:
     )
 
     connection.execute(sql_query, query_params)
+    connection.commit()
 
 
 def update_stage_status(connection, stage_data: Dict[str, Any]) -> None:
@@ -190,6 +193,7 @@ def update_stage_status(connection, stage_data: Dict[str, Any]) -> None:
     )
 
     connection.execute(sql_query, query_params)
+    connection.commit()
 
 
 def list_stages_for_run(connection, run_id: str) -> List[Dict[str, Any]]:
