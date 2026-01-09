@@ -42,7 +42,7 @@ import pandas as pd
 
 
 # ==================================================================================================
-# Transform Tasks
+# Transform Tasks - Phase 1 - Clean
 # ==================================================================================================
 def _standardize_column_names(data: pd.DataFrame, logger: logging.Logger) -> None:
     """
@@ -141,9 +141,9 @@ def _convert_data_types(
 
 
 # ==================================================================================================
-# Execute Transform
+# Execute Transform - Phase 1 - Clean
 # ==================================================================================================
-def run_transform(
+def run_transform_data_cleaning(
     source_name: str,
     data: pd.DataFrame,
     primary_key: List[str],
@@ -180,7 +180,7 @@ def run_transform(
 
 
 # ==================================================================================================
-# Transform Helpers
+# Transform Helpers - Phase 1 - Clean
 # ==================================================================================================
 def _normalize_column_name(column: str) -> str:
     """
