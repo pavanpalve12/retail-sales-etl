@@ -173,7 +173,7 @@ def _build_sales_fact(
 # ==================================================================================================
 # Date Dimension Builder (called by orchestrator)
 # ==================================================================================================
-def _build_date_dim(
+def build_date_dim(
     min_date: pd.Timestamp,
     max_date: pd.Timestamp,
     logger: logging.Logger

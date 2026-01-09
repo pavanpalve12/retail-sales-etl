@@ -136,14 +136,16 @@ def _perform_data_sanity_checks(data: pd.DataFrame, logger: logging.Logger) -> N
 # Execute Extract
 # ==================================================================================================
 def run_extract(
-    source_name: str,
-    file_path: Path,
-    expected_columns: List[str],
-    logger: logging.Logger
+        run_id: str,
+        source_name: str,
+        file_path: Path,
+        expected_columns: List[str],
+        logger: logging.Logger
 ) -> pd.DataFrame:
     """
     Execute the Extract phase for a given source.
 
+    :param run_id: Pipeline run id
     :param source_name: Source entity name (e.g., sales, customers)
     :param file_path: Path to source file
     :param expected_columns: Authoritative column list
