@@ -24,6 +24,7 @@ Design Notes
 ------------------------------------------------------------------------------------
 """
 
+import argparse
 import logging
 import sqlite3
 import uuid
@@ -39,18 +40,21 @@ from etl import (
 from runner import pipeline_config as config
 from utils import log_table_helpers
 from utils import text_logger
-import sys
+
 
 # ============================================================================================
 # Main module to call pipelines
 # ============================================================================================
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python runner.py <pipeline_name>")
-        sys.exit(1)
+    user_input = _parse_user_inputs()
+    print(user_input)
 
-    pipeline_name = sys.argv[1]
-    run_pipeline(pipeline_name)
+    pipeline_name = user_input["pipeline_name"]
+    dry_run = user_input["dry_run"]
+
+    if not dry_run:
+        run_pipeline(pipeline_name)
+
 
 # ============================================================================================
 # Run pipeline
@@ -62,44 +66,58 @@ def run_pipeline(pipeline_name: str) -> None:
     :param pipeline_name: Logical pipeline name (customers, products, stores, sales)
     :return: None
     """
-    logger = text_logger.get_logger()
+    run_id = _get_run_id()
+    logger = text_logger.get_logger(run_id, pipeline_name)
     file_path = None
     control_connection = None
     warehouse_connection = None
     stage_data = None
 
     try:
-        logger.info("Checking if pipeline valid=%s", pipeline_name)
-        _is_pipeline_valid(pipeline_name, config.PIPELINES, logger)
+        logger.info("Pipeline invocation started")
+        logger.info("Pipeline name=%s, run_id=%s", pipeline_name, run_id)
 
-        logger.info("Running pipeline=%s", pipeline_name)
+        # ------------------------------------------------------------------
+        # Validate pipeline
+        # ------------------------------------------------------------------
+        logger.info("Validating pipeline name")
+        _is_pipeline_valid(pipeline_name, config.PIPELINES, logger)
+        logger.info("Pipeline validation successful")
 
         # ------------------------------------------------------------------
         # Connect to databases
         # ------------------------------------------------------------------
+        logger.info("Connecting to control database at path=%s", config.CONTROL_DB_PATH)
         control_connection = _get_control_connection(
             config.CONTROL_DB_PATH, logger
+        )
+        logger.info("Connected to control database")
+
+        logger.info(
+            "Connecting to warehouse database at path=%s",
+            config.RETAIL_SALES_DB_PATH
         )
         warehouse_connection = _get_warehouse_connection(
             config.RETAIL_SALES_DB_PATH, logger
         )
+        logger.info("Connected to warehouse database")
 
         # ------------------------------------------------------------------
-        # Create run entry
+        # Create pipeline run
         # ------------------------------------------------------------------
-        run_id = _get_run_id()
-        logger.info("Creating pipeline run, run_id=%s", run_id)
-
+        logger.info("Creating pipeline run entry in control DB")
         run_data = _insert_run(
             control_connection,
             run_id,
             pipeline_name,
             "STARTED"
         )
+        logger.info("Pipeline run entry created")
 
         # ------------------------------------------------------------------
-        # Fetch pipeline config
+        # Fetch pipeline configuration
         # ------------------------------------------------------------------
+        logger.info("Fetching pipeline configuration")
         file_path = config.FILE_PATHS[pipeline_name]
         table_name = config.TABLE_NAMES[pipeline_name]
         expected_columns = config.EXPECTED_COLUMNS[table_name]
@@ -107,9 +125,17 @@ def run_pipeline(pipeline_name: str) -> None:
         column_defaults = config.DEFAULT_VALUE_MAP[table_name]
         column_types = config.DATA_TYPE_MAP[table_name]
 
+        logger.info(
+            "Pipeline config resolved | file_path=%s | table=%s | pk=%s",
+            file_path,
+            table_name,
+            primary_key
+        )
+
         # ------------------------------------------------------------------
         # EXTRACT
         # ------------------------------------------------------------------
+        logger.info("Starting EXTRACT stage")
         stage_data = _insert_stage(
             control_connection,
             run_id,
@@ -117,6 +143,7 @@ def run_pipeline(pipeline_name: str) -> None:
             "STARTED",
             None
         )
+        logger.info("EXTRACT stage logged as STARTED.")
 
         sourced = extract.run_extract(
             run_id,
@@ -126,6 +153,8 @@ def run_pipeline(pipeline_name: str) -> None:
             logger
         )
 
+        logger.info("EXTRACT completed | rows=%d", len(sourced))
+
         _update_stage(
             control_connection,
             stage_data,
@@ -134,10 +163,12 @@ def run_pipeline(pipeline_name: str) -> None:
             len(sourced),
             None
         )
+        logger.info("EXTRACT stage logged as SUCCESS")
 
         # ------------------------------------------------------------------
         # TRANSFORM CLEAN (T1)
         # ------------------------------------------------------------------
+        logger.info("Starting TRANSFORM CLEAN (T1)")
         stage_data = _insert_stage(
             control_connection,
             run_id,
@@ -145,6 +176,7 @@ def run_pipeline(pipeline_name: str) -> None:
             "STARTED",
             len(sourced)
         )
+        logger.info("TRANSFORM CLEAN (T1) stage logged as STARTED.")
 
         cleaned = transform_data_cleaning.run_transform_data_cleaning(
             pipeline_name,
@@ -155,6 +187,12 @@ def run_pipeline(pipeline_name: str) -> None:
             logger
         )
 
+        logger.info(
+            "TRANSFORM CLEAN (T1) completed | rows_before=%d | rows_after=%d",
+            len(sourced),
+            len(cleaned)
+        )
+
         _update_stage(
             control_connection,
             stage_data,
@@ -163,10 +201,12 @@ def run_pipeline(pipeline_name: str) -> None:
             len(cleaned),
             None
         )
+        logger.info("TRANSFORM CLEAN (T1) stage logged as SUCCESS")
 
         # ------------------------------------------------------------------
         # TRANSFORM MODEL (T2)
         # ------------------------------------------------------------------
+        logger.info("Starting TRANSFORM MODEL (T2)")
         stage_data = _insert_stage(
             control_connection,
             run_id,
@@ -174,6 +214,7 @@ def run_pipeline(pipeline_name: str) -> None:
             "STARTED",
             len(cleaned)
         )
+        logger.info("TRANSFORM MODEL (T2) stage logged as STARTED.")
 
         modeled = transform_data_modeling.run_transform_data_modeling(
             pipeline_name,
@@ -181,8 +222,14 @@ def run_pipeline(pipeline_name: str) -> None:
             expected_columns,
             primary_key,
             logger,
-            config.STATE_REGION_MAP,
-            config.AS_OF_DATE
+            state_region_map=config.STATE_REGION_MAP,
+            as_of_date=config.AS_OF_DATE
+        )
+
+        logger.info(
+            "TRANSFORM MODEL (T2) completed | rows_before=%d | rows_after=%d",
+            len(cleaned),
+            len(modeled)
         )
 
         _update_stage(
@@ -193,19 +240,30 @@ def run_pipeline(pipeline_name: str) -> None:
             len(modeled),
             None
         )
+        logger.info("TRANSFORM MODEL (T2) stage logged as SUCCESS")
 
         # ------------------------------------------------------------------
         # SALES-SPECIFIC DATE DIM
         # ------------------------------------------------------------------
         if pipeline_name == "sales":
+            logger.info("Sales pipeline detected, building date_dim")
+
             min_sale_date = modeled["sale_date"].min()
             max_sale_date = modeled["sale_date"].max()
+
+            logger.info(
+                "Date dim range | min_date=%s | max_date=%s",
+                min_sale_date,
+                max_sale_date
+            )
 
             date_dim = transform_data_modeling.build_date_dim(
                 min_sale_date,
                 max_sale_date,
                 logger
             )
+
+            logger.info("Date dim built | rows=%d", len(date_dim))
 
             stage_data = _insert_stage(
                 control_connection,
@@ -214,6 +272,8 @@ def run_pipeline(pipeline_name: str) -> None:
                 "STARTED",
                 len(date_dim)
             )
+            logger.info("LOAD stage logged as STARTED.")
+
 
             load.run_load(
                 date_dim,
@@ -231,10 +291,12 @@ def run_pipeline(pipeline_name: str) -> None:
                 len(date_dim),
                 None
             )
+            logger.info("LOAD_DATE_DIM stage logged as SUCCESS")
 
         # ------------------------------------------------------------------
         # LOAD
         # ------------------------------------------------------------------
+        logger.info("Starting LOAD stage for table=%s", table_name)
         stage_data = _insert_stage(
             control_connection,
             run_id,
@@ -242,6 +304,7 @@ def run_pipeline(pipeline_name: str) -> None:
             "STARTED",
             len(modeled)
         )
+        logger.info("LOAD stage logged as STARTED.")
 
         load.run_load(
             modeled,
@@ -259,13 +322,21 @@ def run_pipeline(pipeline_name: str) -> None:
             len(modeled),
             None
         )
+        logger.info("LOAD stage logged as SUCCESS")
 
+        # ------------------------------------------------------------------
+        # Finalize run
+        # ------------------------------------------------------------------
+        logger.info("Marking pipeline run as SUCCESS")
         _update_run(control_connection, run_data, "SUCCESS", None)
+        logger.info("Pipeline completed successfully")
 
     except Exception as err:
-        logger.exception("PIPELINE failed for source=%s", pipeline_name)
+        logger.error("Pipeline execution failed | pipeline=%s | run_id=%s", pipeline_name, run_id)
+        logger.exception("Failure details")
 
         if stage_data:
+            logger.info("Updating failed stage log")
             _update_stage(
                 control_connection,
                 stage_data,
@@ -276,6 +347,7 @@ def run_pipeline(pipeline_name: str) -> None:
             )
 
         if control_connection:
+            logger.info("Updating pipeline run status to FAILED")
             _update_run(
                 control_connection,
                 run_data,
@@ -286,10 +358,12 @@ def run_pipeline(pipeline_name: str) -> None:
         raise
 
     finally:
+        logger.info("Closing database connections")
         if control_connection:
             control_connection.close()
         if warehouse_connection:
             warehouse_connection.close()
+        logger.info("Pipeline resources released")
 
 
 # ============================================================================================
@@ -413,6 +487,59 @@ def _update_run(
         }
     )
     log_table_helpers.update_run_status(connection, run_data)
+
+# ============================================================================================
+# CLI input using argparse
+# ============================================================================================
+def _build_parser():
+    prog = "retail_sales_etl"
+    usage = "retail_sales_etl --pipeline_name {customers, products, stores, sales} [--dry-run]"
+    description = ""
+    epilog = ""
+
+    formatter_class = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(
+        prog = prog,
+        usage = usage,
+        description = description,
+        epilog = epilog,
+        formatter_class = formatter_class
+    )
+    return parser
+
+def _build_user_inputs():
+    parser = _build_parser()
+    parser.add_argument(
+        "--pipeline_name", "-p",
+        dest="pipeline_name",
+        type=str,
+        choices=["customers", "products", "stores", "sales"],
+        help="Pipeline name"
+    )
+
+    parser.add_argument(
+        "--dry-run", "-d",
+        dest="dry_run",
+        type=bool,
+        default=False,
+        choices=[True, False],
+        help="validate config + connectivity only"
+    )
+
+    return parser
+
+def _parse_user_inputs():
+    parser = _build_user_inputs()
+
+    try:
+        args = parser.parse_args()
+        user_input = vars(args)
+    except SystemExit:
+        print(f"\n{"-" * 50}\n{"Incorrect user input provided.".upper()}\n{"-" * 50}\n")
+        parser.print_help()
+        exit(1)
+    else:
+        return user_input
 
 
 # ============================================================================================

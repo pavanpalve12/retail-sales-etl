@@ -163,6 +163,7 @@ DATA_TYPE_MAP = {
 
 # state_region_map
 STATE_REGION_MAP = {
+    # NORTH
     "JK": "NORTH",
     "HP": "NORTH",
     "PB": "NORTH",
@@ -170,26 +171,52 @@ STATE_REGION_MAP = {
     "DL": "NORTH",
     "UK": "NORTH",
     "UP": "NORTH",
+    "CH": "NORTH",
 
+    # SOUTH
     "KA": "SOUTH",
     "TN": "SOUTH",
     "KL": "SOUTH",
     "AP": "SOUTH",
-    "TS": "SOUTH",
+    "TG": "SOUTH",
+    "PY": "SOUTH",
 
+    # EAST
     "WB": "EAST",
     "OD": "EAST",
     "BR": "EAST",
     "JH": "EAST",
 
+    # WEST
     "MH": "WEST",
     "GJ": "WEST",
     "RJ": "WEST",
     "GA": "WEST",
+    "DN": "WEST",
+    "DD": "WEST",
 
+    # CENTRAL
     "MP": "CENTRAL",
-    "CG": "CENTRAL"
+    "CG": "CENTRAL",
+
+    # NORTH-EAST
+    "AS": "NORTH_EAST",
+    "AR": "NORTH_EAST",
+    "ML": "NORTH_EAST",
+    "MN": "NORTH_EAST",
+    "MZ": "NORTH_EAST",
+    "NL": "NORTH_EAST",
+    "TR": "NORTH_EAST",
+    "SK": "NORTH_EAST",
+
+    # ISLANDS
+    "AN": "ISLANDS",
+    "LD": "ISLANDS",
+
+    # OTHER UTs
+    "LA": "NORTH"
 }
+
 
 # as_of_date
 AS_OF_DATE = datetime.now(timezone.utc)
@@ -203,19 +230,21 @@ TABLE_NAMES = {
     "date": "date_dim"
 }
 
-# file paths
-FILE_PATHS = {
-    "customers": "data/customers/customers.csv",
-    "products": "data/products/products.csv",
-    "stores": "data/stores/stores.csv",
-    "sales": "data/sales/sales.csv"
-}
-
+# db paths
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 CONTROL_DB_PATH = PROJECT_ROOT / "db" / "etl_control.db"
 RETAIL_SALES_DB_PATH = PROJECT_ROOT/ "db" / "etl_retail_sales.db"
 
+# file paths
+FILE_PATHS = {
+    "customers": PROJECT_ROOT / "data" / "customers" / "customers.csv",
+    "products": PROJECT_ROOT / "data" / "products" / "products.csv",
+    "stores": PROJECT_ROOT / "data" / "stores" / "stores.csv",
+    "sales": PROJECT_ROOT / "data" / "sales" / "sales.csv"
+}
+
+# pipelines
 PIPELINES = ["customers", "products", "stores", "sales"]
 
 

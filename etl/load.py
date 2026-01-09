@@ -78,8 +78,10 @@ def _insert_data_in_db(
             INSERT INTO {table_name} ({column_list})
             VALUES ({placeholders})
         """
-
+        logger.info("Running insert sql query=%s", insert_sql)
+        data = _normalize_sqlite_types(data)
         rows = [tuple(row) for row in data.itertuples(index=False, name=None)]
+
         connection.executemany(insert_sql, rows)
 
         connection.commit()
@@ -206,3 +208,19 @@ def _validate_data_integrity(
         )
 
     logger.info("Post-load integrity validation passed for table=%s", table_name)
+
+
+def _normalize_sqlite_types(data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Function is coverting pandas timestamp columns to sqlite iso format
+    :param data:
+    :return:
+    """
+    data = data.copy()
+
+    for col in data.columns:
+        if data[col].apply(lambda x: isinstance(x, pd.Timestamp)).any():
+            data[col] = data[col].apply(
+                lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x
+            )
+    return data

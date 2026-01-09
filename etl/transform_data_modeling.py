@@ -38,17 +38,17 @@ from typing import List, Dict
 
 import pandas as pd
 
-
 # ==================================================================================================
 # Dimension Builders
 # ==================================================================================================
 def _build_customers_dim(
-    source_name: str,
-    data: pd.DataFrame,
-    expected_columns: List[str],
-    as_of_date: pd.Timestamp,
-    logger: logging.Logger
-) -> pd.DataFrame:
+        source_name: str,
+        data: pd.DataFrame,
+        expected_columns: List[str],
+        *,
+        logger: logging.Logger,
+        **kwargs
+) -> (pd.DataFrame, List[str]):
     """
     Build customers dimension table.
 
@@ -67,22 +67,27 @@ def _build_customers_dim(
         data["first_name"].fillna("") + " " + data["last_name"].fillna("")
     ).str.strip()
 
-    data["customer_tenure_days"] = (as_of_date - data["signup_date"]).dt.days
+    data["customer_tenure_days"] = (
+            kwargs["as_of_date"] - pd.to_datetime(data["signup_date"], utc=True)
+    ).dt.days
     data["customer_tenure_bucket"] = data["customer_tenure_days"].apply(
         _assign_customer_tenure_bucket
     )
 
     data["email_domain"] = data["email"].str.split("@").str[1]
+    derived_columns = [column for column in data.columns if column not in expected_columns]
 
-    return data
+    return data, derived_columns
 
 
 def _build_products_dim(
-    source_name: str,
-    data: pd.DataFrame,
-    expected_columns: List[str],
-    logger: logging.Logger
-) -> pd.DataFrame:
+        source_name: str,
+        data: pd.DataFrame,
+        expected_columns: List[str],
+        *,
+        logger: logging.Logger,
+        **kwargs
+) -> (pd.DataFrame, List[str]):
     """
     Build products dimension table.
 
@@ -100,16 +105,18 @@ def _build_products_dim(
     data["is_premium_product"] = data["price"] > 2000
     data["category_normalized"] = data["category"].str.upper()
 
-    return data
+    derived_columns = [column for column in data.columns if column not in expected_columns]
+    return data, derived_columns
 
 
 def _build_stores_dim(
-    source_name: str,
-    data: pd.DataFrame,
-    expected_columns: List[str],
-    state_region_map: Dict[str, str],
-    logger: logging.Logger
-) -> pd.DataFrame:
+        source_name: str,
+        data: pd.DataFrame,
+        expected_columns: List[str],
+        *,
+        logger: logging.Logger,
+        **kwargs
+) -> (pd.DataFrame, List[str]):
     """
     Build stores dimension table.
 
@@ -130,23 +137,28 @@ def _build_stores_dim(
     metro_cities = {"MUMBAI", "DELHI", "BANGALORE", "CHENNAI"}
     data["is_metro_store"] = data["city"].isin(metro_cities)
 
-    data["store_region"] = data["state"].map(state_region_map)
+    data["store_region"] = data["state"].map(kwargs["state_region_map"])
 
     if data["store_region"].isna().any():
+        unmapped = data.loc[data["store_region"].isna(), "state"].unique()
+        logger.error("Unmapped states found: %s", unmapped)
         raise ValueError("Unmapped states found while deriving store_region")
 
-    return data
+    derived_columns = [column for column in data.columns if column not in expected_columns]
+    return data, derived_columns
 
 
 # ==================================================================================================
 # Fact Builder
 # ==================================================================================================
 def _build_sales_fact(
-    source_name: str,
-    data: pd.DataFrame,
-    expected_columns: List[str],
-    logger: logging.Logger
-) -> pd.DataFrame:
+        source_name: str,
+        data: pd.DataFrame,
+        expected_columns: List[str],
+        *,
+        logger: logging.Logger,
+        **kwargs
+) -> (pd.DataFrame, List[str]):
     """
     Build sales fact table.
 
@@ -164,10 +176,13 @@ def _build_sales_fact(
     data["discount_amount"] = data["gross_amount"] * (data["discount_pct"] / 100)
     data["net_amount"] = data["gross_amount"] - data["discount_amount"]
     data["is_discounted"] = data["discount_pct"] > 0
+
+    data["sale_date"] = pd.to_datetime(data["sale_date"], utc=True)
     data["order_year"] = data["sale_date"].dt.year
     data["order_month"] = data["sale_date"].dt.strftime("%Y-%m")
 
-    return data
+    derived_columns = [column for column in data.columns if column not in expected_columns]
+    return data, derived_columns
 
 
 # ==================================================================================================
@@ -238,14 +253,22 @@ def run_transform_data_modeling(
         if source_name not in builders:
             raise ValueError(f"Invalid source name: {source_name}")
 
-        data = builders[source_name](source_name, data, expected_columns, **kwargs, logger=logger)
+        data, derived_columns = builders[source_name](
+            source_name,
+            data,
+            expected_columns,
+            **kwargs,
+            logger=logger
+        )
 
         _validate_data_integrity(
             source_name=source_name,
             data=data,
             primary_key=primary_key,
             row_count_before=row_count_before,
-            expected_columns=expected_columns
+            expected_columns=expected_columns,
+            derived_columns=derived_columns,
+            logger=logger
         )
 
         logger.info("MODEL TRANSFORM (T2) completed for source=%s", source_name)
@@ -260,11 +283,13 @@ def run_transform_data_modeling(
 # Common Integrity Validation
 # ==================================================================================================
 def _validate_data_integrity(
-    source_name: str,
-    data: pd.DataFrame,
-    primary_key: List[str],
-    row_count_before: int,
-    expected_columns: List[str]
+        source_name: str,
+        data: pd.DataFrame,
+        primary_key: List[str],
+        row_count_before: int,
+        expected_columns: List[str],
+        derived_columns: List[str],
+        logger: logging.Logger
 ) -> None:
     """
     Validate T2 integrity invariants.
@@ -277,25 +302,87 @@ def _validate_data_integrity(
     :param logger: Shared ETL logger
     :return: None
     """
-    if data[primary_key].isna().any().any():
+    logger.info("Validating T2 data integrity for source=%s", source_name)
+    logger.info("Primary key columns=%s", primary_key)
+    logger.info("Row count before T2=%d, after T2=%d", row_count_before, len(data))
+
+    # ------------------------------------------------------------------
+    # NULL check on primary key
+    # ------------------------------------------------------------------
+    nulls_on_pk = data[primary_key].isna().any().any()
+    logger.info("Null check on primary key passed=%s", not nulls_on_pk)
+
+    if nulls_on_pk:
+        logger.error(
+            "NULL values detected on primary key columns=%s for source=%s",
+            primary_key,
+            source_name
+        )
         raise ValueError(f"NULL values found in primary key for {source_name}")
 
-    if data.duplicated(subset=primary_key, keep=False).any():
+    # ------------------------------------------------------------------
+    # Duplicate check on primary key
+    # ------------------------------------------------------------------
+    has_duplicates = data.duplicated(subset=primary_key, keep=False).any()
+    logger.info("Duplicate primary key check passed=%s", not has_duplicates)
+
+    if has_duplicates:
+        logger.error(
+            "Duplicate primary keys detected for source=%s on columns=%s",
+            source_name,
+            primary_key
+        )
         raise ValueError(f"Duplicate primary keys found for {source_name}")
 
+    # ------------------------------------------------------------------
+    # Row count reconciliation
+    # ------------------------------------------------------------------
     if len(data) != row_count_before:
+        logger.error(
+            "Row count changed during T2 for source=%s: %d -> %d",
+            source_name,
+            row_count_before,
+            len(data)
+        )
         raise ValueError(
             f"Row count changed during T2 for {source_name}: "
             f"{row_count_before} -> {len(data)}"
         )
 
-    if sorted(data.columns.tolist()) != sorted(expected_columns):
+    logger.info("Row count reconciliation passed")
+
+    # ------------------------------------------------------------------
+    # Schema validation
+    # ------------------------------------------------------------------
+    read_columns = sorted(data.columns.tolist())
+    expected_columns_sorted = sorted(expected_columns + derived_columns)
+
+    logger.info("Expected columns=%s", expected_columns_sorted)
+    logger.info("Read columns=%s", read_columns)
+
+    if read_columns != expected_columns_sorted:
+        logger.error(
+            "Schema mismatch for source=%s. Expected=%s, Found=%s",
+            source_name,
+            expected_columns_sorted,
+            read_columns
+        )
         raise ValueError(f"Schema mismatch detected for {source_name}")
 
+    # ------------------------------------------------------------------
+    # Snake case validation
+    # ------------------------------------------------------------------
     pattern = r"^[a-z0-9]+(?:_[a-z0-9]+)*$"
     for col in data.columns:
         if re.fullmatch(pattern, col) is None:
+            logger.error(
+                "Invalid column name detected for source=%s: %s",
+                source_name,
+                col
+            )
             raise ValueError(f"Invalid column name detected: {col}")
+
+    logger.info("T2 data integrity validation passed for source=%s", source_name)
 
 
 # ==================================================================================================

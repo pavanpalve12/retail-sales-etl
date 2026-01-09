@@ -137,7 +137,7 @@ def _convert_data_types(
     for col, dtype in column_types_map.items():
         logger.info("Converting column '%s' to type '%s'", col, dtype)
 
-    data[:] = data.astype(dtype=column_types_map, errors="raise")
+    data = data.astype(dtype=column_types_map, errors="raise")
 
 
 # ==================================================================================================
