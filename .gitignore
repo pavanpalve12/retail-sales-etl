@@ -210,8 +210,8 @@ __marimo__/
 .idea/
 
 # Other
-.data/
+data/
 .db/
 .DS_Store/
 .DS_Store
-.logs/
+logs/
